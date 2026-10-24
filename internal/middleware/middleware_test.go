@@ -57,3 +57,49 @@ func TestRecover_TurnsPanicInto500(t *testing.T) {
 		t.Fatalf("expected 500, got %d", rr.Code)
 	}
 }
+
+func TestRecover_DoesNotWriteTwiceAfterResponseStarted(t *testing.T) {
+	captureLog(t)
+	h := Recover(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte("partial"))
+		panic("late boom")
+	}))
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if rr.Code != http.StatusAccepted || rr.Body.String() != "partial" {
+		t.Fatalf("response was changed after it started: %d %q", rr.Code, rr.Body.String())
+	}
+}
+
+func TestRecover_ReRaisesErrAbortHandler(t *testing.T) {
+	h := Recover(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic(http.ErrAbortHandler)
+	}))
+	defer func() {
+		if r := recover(); r != http.ErrAbortHandler {
+			t.Fatalf("expected ErrAbortHandler to propagate, got %v", r)
+		}
+	}()
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+}
+
+func TestRecoverAndLogging_LogTheRealStatus(t *testing.T) {
+	buf := captureLog(t)
+	h := Recover(Logging(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/z", nil))
+	if !strings.Contains(buf.String(), "GET /z -> 404") {
+		t.Fatalf("unexpected log: %q", buf.String())
+	}
+}
+
+func TestRecorder_Unwrap(t *testing.T) {
+	rr := httptest.NewRecorder()
+	if newRecorder(rr).Unwrap() != rr {
+		t.Fatal("Unwrap should return the original writer")
+	}
+}

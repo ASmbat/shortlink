@@ -153,3 +153,12 @@ func TestStats_NotFound(t *testing.T) {
 		t.Fatalf("expected 404, got %d", rr.Code)
 	}
 }
+
+func TestCreate_InvalidTTL(t *testing.T) {
+	rr := httptest.NewRecorder()
+	body := strings.NewReader(`{"long_url":"https://example.com","ttl_seconds":-5}`)
+	newTestHandler().Routes().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/links", body))
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for a negative TTL, got %d", rr.Code)
+	}
+}

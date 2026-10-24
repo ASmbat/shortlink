@@ -180,3 +180,16 @@ func TestRunCleanup_StopsOnCancel(t *testing.T) {
 		t.Fatal("RunCleanup did not stop after cancel")
 	}
 }
+
+func TestShorten_RejectsBadTTL(t *testing.T) {
+	svc := New(store.NewMemoryStore())
+	for _, ttl := range []int{-1, maxTTLSeconds + 1, 1 << 62} {
+		_, err := svc.Shorten(context.Background(), models.CreateLinkRequest{LongURL: "https://example.com", TTLSecond: ttl})
+		if !errors.Is(err, ErrInvalidTTL) {
+			t.Errorf("ttl %d: expected ErrInvalidTTL, got %v", ttl, err)
+		}
+	}
+	if _, err := svc.Shorten(context.Background(), models.CreateLinkRequest{LongURL: "https://example.com", TTLSecond: maxTTLSeconds}); err != nil {
+		t.Errorf("max TTL should be allowed: %v", err)
+	}
+}

@@ -48,7 +48,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 
 	link, err := h.svc.Shorten(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, service.ErrInvalidURL) {
+		if errors.Is(err, service.ErrInvalidURL) || errors.Is(err, service.ErrInvalidTTL) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}

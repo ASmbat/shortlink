@@ -12,7 +12,10 @@ import (
 	"github.com/ASmbat/shortlink/internal/store"
 )
 
-var ErrInvalidURL = errors.New("invalid long url")
+var (
+	ErrInvalidURL = errors.New("invalid long url")
+	ErrInvalidTTL = errors.New("ttl_seconds must be between 0 and 10 years")
+)
 
 const (
 	// codeLength is the number of characters in a short code. With 62
@@ -22,6 +25,10 @@ const (
 
 	// maxLongURLLen bounds how much a single link can store.
 	maxLongURLLen = 4096
+
+	// maxTTLSeconds caps the TTL. Without a cap, a huge value overflows
+	// time.Duration and the link would expire at a random time.
+	maxTTLSeconds = 10 * 365 * 24 * 60 * 60
 )
 
 // reservedCodes are paths used by other routes; a generated code must
@@ -48,6 +55,10 @@ func (s *Service) Shorten(ctx context.Context, req models.CreateLinkRequest) (*m
 	parsed, err := url.ParseRequestURI(req.LongURL)
 	if err != nil || parsed.Host == "" || !allowedSchemes[parsed.Scheme] {
 		return nil, ErrInvalidURL
+	}
+
+	if req.TTLSecond < 0 || req.TTLSecond > maxTTLSeconds {
+		return nil, ErrInvalidTTL
 	}
 
 	now := s.now()

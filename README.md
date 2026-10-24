@@ -44,7 +44,7 @@ Response:
 }
 ```
 
-`ttl_seconds` is optional; omit it for a link that never expires (then
+`ttl_seconds` is optional (0 to 10 years); omit it for a link that never expires (then
 `expires_at` is left out of the response).
 
 ### Resolve a link
