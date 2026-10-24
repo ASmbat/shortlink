@@ -8,9 +8,8 @@ import (
 	"github.com/ASmbat/shortlink/internal/models"
 )
 
-// MemoryStore is a thread-safe, in-memory Store implementation. It's the
-// default backend for local development and tests; swap in a DynamoDB (or
-// other) implementation of Store for production without touching callers.
+// MemoryStore is a thread-safe, in-memory Store for local development and
+// tests. It returns copies, so callers can't change stored links by accident.
 type MemoryStore struct {
 	mu    sync.RWMutex
 	links map[string]*models.Link
@@ -40,9 +39,6 @@ func (s *MemoryStore) Get(_ context.Context, code string) (*models.Link, error) 
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if !link.ExpiresAt.IsZero() && time.Now().After(link.ExpiresAt) {
-		return nil, ErrNotFound
-	}
 	cp := *link
 	return &cp, nil
 }
@@ -57,4 +53,26 @@ func (s *MemoryStore) IncrementHits(_ context.Context, code string) error {
 	}
 	link.Hits++
 	return nil
+}
+
+func (s *MemoryStore) DeleteExpired(_ context.Context, now time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	removed := 0
+	for code, link := range s.links {
+		if link.Expired(now) {
+			delete(s.links, code)
+			removed++
+		}
+	}
+	return removed, nil
+}
+
+// Len returns the number of stored links (including expired ones not yet
+// cleaned up).
+func (s *MemoryStore) Len() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.links)
 }

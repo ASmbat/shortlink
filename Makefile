@@ -4,7 +4,7 @@ run:
 	go run ./cmd/server
 
 test:
-	go test ./... -cover
+	go test ./... -race -cover
 
 build:
 	go build -o bin/shortlink ./cmd/server

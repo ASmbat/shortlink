@@ -112,3 +112,44 @@ func TestHealthz(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 }
+
+func TestStats_ReturnsHitsWithoutCountingAHit(t *testing.T) {
+	h := newTestHandler()
+	routes := h.Routes()
+
+	body, _ := json.Marshal(models.CreateLinkRequest{LongURL: "https://example.com/target"})
+	createRR := httptest.NewRecorder()
+	routes.ServeHTTP(createRR, httptest.NewRequest(http.MethodPost, "/links", bytes.NewReader(body)))
+	var link models.Link
+	if err := json.Unmarshal(createRR.Body.Bytes(), &link); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(createRR.Body.String(), "expires_at") {
+		t.Errorf("expires_at should be omitted for links without a TTL: %s", createRR.Body.String())
+	}
+
+	for i := 0; i < 2; i++ {
+		routes.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/"+link.Code, nil))
+	}
+
+	for i := 0; i < 2; i++ { // reading stats twice must not change the count
+		rr := httptest.NewRecorder()
+		routes.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/links/"+link.Code, nil))
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rr.Code)
+		}
+		var got models.Link
+		_ = json.Unmarshal(rr.Body.Bytes(), &got)
+		if got.Hits != 2 {
+			t.Fatalf("expected 2 hits, got %d", got.Hits)
+		}
+	}
+}
+
+func TestStats_NotFound(t *testing.T) {
+	rr := httptest.NewRecorder()
+	newTestHandler().Routes().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/links/nope", nil))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rr.Code)
+	}
+}

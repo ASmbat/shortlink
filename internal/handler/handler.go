@@ -22,16 +22,14 @@ func New(svc *service.Service) *Handler {
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /links", h.create)
+	mux.HandleFunc("GET /links/{code}", h.stats)
 	mux.HandleFunc("GET /{code}", h.redirect)
 	mux.HandleFunc("GET /healthz", h.health)
 	return mux
 }
 
-// maxRequestBody bounds the POST /links request body. Without this,
-// json.Decoder reads the body to completion regardless of size, so a
-// client could send an arbitrarily large body and have it held in memory
-// (the long_url is also stored indefinitely absent a TTL) — a cheap
-// memory-exhaustion vector.
+// maxRequestBody bounds the POST /links body, so a client can't make the
+// server read an unlimited amount of data into memory.
 const maxRequestBody = 1 << 20 // 1MB
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +73,21 @@ func (h *Handler) redirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, link.LongURL, http.StatusFound)
+}
+
+// stats returns the link details, including hit count, without
+// redirecting or counting a hit.
+func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
+	link, err := h.svc.Get(r.Context(), r.PathValue("code"))
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "link not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "could not load link")
+		return
+	}
+	writeJSON(w, http.StatusOK, link)
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {

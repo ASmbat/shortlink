@@ -1,8 +1,10 @@
 # shortlink
 
-A small, dependency-light URL shortener HTTP API written in Go, using only
-the standard library's `net/http` (Go 1.22+ method-pattern routing) plus
-`google/uuid` for code generation.
+[![CI](https://github.com/ASmbat/shortlink/actions/workflows/ci.yml/badge.svg)](https://github.com/ASmbat/shortlink/actions/workflows/ci.yml)
+
+A small URL shortener HTTP API written in Go with only the standard
+library: `net/http` method-pattern routing, `crypto/rand` for codes, no
+third-party dependencies.
 
 ## Why this exists
 
@@ -18,6 +20,7 @@ touching the handler or service code.
 |--------|------------|---------------------------------------|
 | POST   | `/links`   | Create a short link                   |
 | GET    | `/{code}`  | Redirect to the original URL          |
+| GET    | `/links/{code}` | Link details and hit count (no redirect, not counted as a hit) |
 | GET    | `/healthz` | Liveness check                        |
 
 ### Create a link
@@ -41,7 +44,8 @@ Response:
 }
 ```
 
-`ttl_seconds` is optional; omit it for a link that never expires.
+`ttl_seconds` is optional; omit it for a link that never expires (then
+`expires_at` is left out of the response).
 
 ### Resolve a link
 
@@ -75,19 +79,29 @@ docker run -p 8080:8080 shortlink
 make test
 ```
 
-Covers the service layer (validation, expiry, hit counting) and the HTTP
-handlers (status codes, redirect location, error responses).
+Covers the service (URL validation, code format and uniqueness, collision
+retry limit, expiry at the TTL boundary, cleanup of expired links, hit
+counting), the in-memory store, the logging/recovery middleware, and the
+HTTP handlers (status codes, redirect location, stats endpoint).
 
 ## Design notes / trade-offs
 
 - **Storage**: ships with an in-memory store for simplicity. The `store.Store`
-  interface is the seam for a durable backend — a DynamoDB implementation
-  would satisfy the same three methods (`Save`, `Get`, `IncrementHits`).
-- **Code generation**: uses a UUID-derived short code with a bounded retry
-  loop on collision, rather than a counter, so it works without coordination
-  across multiple instances.
+  interface is the seam for a durable backend (e.g. DynamoDB). Expiry rules
+  live in the service, so every backend behaves the same.
+- **Expiry and cleanup**: expired links return `404` right away, and a
+  background job removes them every minute so they don't use memory forever.
+- **Code generation**: 7 random base62 characters from `crypto/rand` (about
+  3.5 trillion combinations), with rejection sampling so every character is
+  equally likely, and a bounded retry on collision. Random codes need no
+  coordination between instances, unlike a counter. Codes that would shadow
+  other routes (`healthz`, `links`) are never issued.
 - **Hit counting** is best-effort and non-blocking: a failure to record a
   hit never breaks the redirect itself.
 - **No auth/rate-limiting** included — out of scope for this example, but
   would sit as additional middleware in `internal/middleware` alongside the
   existing logging/recovery middleware.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -22,12 +23,17 @@ func main() {
 		addr = ":8080"
 	}
 
-	// MemoryStore is used here for simplicity; swap in a store.Store backed
-	// by DynamoDB or another durable store for production use — the rest of
-	// the app depends only on the interface in internal/store.
+	// The in-memory store keeps the demo dependency-free. A durable backend
+	// only needs to implement store.Store.
 	s := store.NewMemoryStore()
 	svc := service.New(s)
 	h := handler.New(svc)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Remove expired links in the background so they don't use memory forever.
+	go svc.RunCleanup(ctx, time.Minute, log.Printf)
 
 	srv := &http.Server{
 		Addr:         addr,
@@ -39,21 +45,18 @@ func main() {
 
 	go func() {
 		log.Printf("listening on %s", addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("server error: %v", err)
 		}
 	}()
 
-	// Graceful shutdown on SIGINT/SIGTERM.
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
-
+	<-ctx.Done()
 	log.Println("shutting down...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("graceful shutdown failed: %v", err)
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("graceful shutdown failed: %v", err)
 	}
 	log.Println("shutdown complete")
 }
